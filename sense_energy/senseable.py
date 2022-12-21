@@ -185,7 +185,7 @@ class Senseable(SenseableBase):
             dt = datetime.utcnow()
         self._trend_data[scale] = self._api_call(
             "app/history/trends?monitor_id=%s&scale=%s&start=%s"
-            % (self.sense_monitor_id, scale, dt.strftime("%Y-%m-%dT%H:%M:%S"))
+            % (self.sense_monitor_id, scale, dt.isoformat())
         )
 
     def update_trend_data(self, dt=None):

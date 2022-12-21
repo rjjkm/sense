@@ -134,6 +134,18 @@ class SenseableBase(object):
         return self.get_trend("DAY", "solar_powered")
 
     @property
+    def start_time(self):
+        if "start" not in self._trend_data["DAY"]:
+            return 0
+        return self._trend_data["DAY"]["start"]
+
+    @property
+    def end_time(self):
+        if "end" not in self._trend_data["DAY"]:
+            return 0
+        return self._trend_data["DAY"]["end"]
+
+    @property
     def weekly_usage(self):
         return self.get_trend("WEEK", "consumption")
 
