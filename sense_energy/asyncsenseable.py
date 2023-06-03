@@ -1,13 +1,19 @@
 import asyncio
 import json
 import ssl
+import sys
 
 import aiohttp
+import orjson
 import websockets
 
 from .sense_api import *
 from .sense_exceptions import *
 
+if sys.version_info[:2] < (3, 11):
+    from async_timeout import timeout as asyncio_timeout
+else:
+    from asyncio import timeout as asyncio_timeout
 
 class ASyncSenseable(SenseableBase):
     def __init__(
@@ -121,14 +127,21 @@ class ASyncSenseable(SenseableBase):
             if resp.status != 200:
                 raise SenseAPIException(f"API Return Code: {resp.status}")
 
-    async def update_realtime(self):
+    async def update_realtime(self, retry=True):
         """Update the realtime data (device status and current power)."""
         # rate limit API calls
         now = time()
         if self._realtime and self.rate_limit and self.last_realtime_call + self.rate_limit > now:
             return self._realtime
         self.last_realtime_call = now
-        await self.async_realtime_stream(single=True)
+        try:
+            await self.async_realtime_stream(single=True)
+        except SenseAuthenticationException as e:
+            if retry:
+                await self.renew_auth()
+                await self.update_realtime(False)
+            else:
+                raise e
 
     async def async_realtime_stream(self, callback=None, single=False):
         """Reads realtime data from websocket.  Data is passed to callback if available.
@@ -138,11 +151,12 @@ class ASyncSenseable(SenseableBase):
         async with websockets.connect(url, ssl=self.ssl_context) as ws:
             while True:
                 try:
-                    message = await asyncio.wait_for(ws.recv(), timeout=self.wss_timeout)
+                    async with asyncio_timeout(self.wss_timeout):
+                        message = await ws.recv()
                 except asyncio.TimeoutError as ex:
                     raise SenseAPITimeoutException("API websocket timed out") from ex
 
-                result = json.loads(message)
+                result = orjson.loads(message)
                 if result.get("type") == "realtime_update":
                     data = result["payload"]
                     self._set_realtime(data)
@@ -152,6 +166,8 @@ class ASyncSenseable(SenseableBase):
                         return
                 elif result.get("type") == "error":
                     data = result["payload"]
+                    if not data["authorized"]:
+                        raise SenseAuthenticationException("Web Socket Unauthorized")
                     raise SenseWebsocketException(data["error_reason"])
 
     async def get_realtime_future(self, callback):
